@@ -2,7 +2,7 @@ use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_contract_standards::fungible_token::core::ext_ft_core;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::serde::Serialize;
-use near_sdk::{env, AccountId, Balance, near_bindgen, BorshStorageKey, PromiseOrValue, assert_one_yocto, ext_contract, Promise};
+use near_sdk::{env, AccountId, Balance, near_bindgen, BorshStorageKey, PromiseOrValue, assert_one_yocto, ext_contract, Promise, PanicOnDefault};
 use near_sdk::collections::{LookupMap, Vector};
 use near_sdk::json_types::{U128, U64};
 
@@ -29,7 +29,7 @@ pub struct Transaction {
 }
 
 #[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 struct BridgeAssist {
   pub owner: AccountId,
   pub token: AccountId,
@@ -93,7 +93,7 @@ impl FungibleTokenReceiver for BridgeAssist {
 #[near_bindgen]
 impl BridgeAssist {
   #[init]
-  pub fn new(owner: AccountId, token: AccountId, limit_per_send: Balance) -> Self {
+  pub fn init(owner: AccountId, token: AccountId, limit_per_send: Balance) -> Self {
     Self {
       owner,
       token,
