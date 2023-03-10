@@ -637,6 +637,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-bridge-assist"
+version = "1.0.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
+ "uint",
+]
+
+[[package]]
 name = "near-contract-standards"
 version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -672,15 +681,6 @@ dependencies = [
  "serde_json",
  "subtle",
  "thiserror",
-]
-
-[[package]]
-name = "near-evm-bridge"
-version = "1.0.0"
-dependencies = [
- "near-contract-standards",
- "near-sdk",
- "uint",
 ]
 
 [[package]]

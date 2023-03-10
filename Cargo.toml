@@ -1,7 +1,7 @@
 [package]
-name = "near-evm-bridge"
+name = "near-bridge-assist"
 version = "1.0.0"
-authors = ["Evgenii Lebedev"]
+authors = ["Evgeniy Lebedev"]
 edition = "2021"
 
 [lib]
