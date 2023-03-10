@@ -1,0 +1,8 @@
+{
+  "name": "near-evm-bridge",
+  "version": "1.0.0",
+  "devDependencies": {
+    "near-cli": "^3.3.0"
+  },
+  "dependencies": {}
+}

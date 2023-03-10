@@ -1,1 +1,1 @@
-# near-erc20-bridge
+# near-evm-bridge
