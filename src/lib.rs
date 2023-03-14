@@ -1,13 +1,20 @@
 use near_contract_standards::fungible_token::core::ext_ft_core;
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LookupMap, Vector};
+use near_sdk::collections::{LookupMap, LookupSet, Vector};
 use near_sdk::json_types::{U128, U64};
-use near_sdk::serde::{Serialize, Deserialize};
+use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, ext_contract, near_bindgen, AccountId, Balance, BorshStorageKey,
-    CryptoHash, PanicOnDefault, Promise, PromiseOrValue,
+    assert_one_yocto, env, near_bindgen, AccountId, Balance, BorshStorageKey,
+    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey,
 };
+
+const ECRECOVER_V: u8 = 0;
+const ECRECOVER_M: bool = false;
+
+const FEE_DENOMINATOR: u16 = 10000;
+
+const GAS_FOR_RESOLVE_FULFILLED_SIG: Gas = Gas(30_000_000_000_000);
 
 // //initiate a cross contract call to the nft contract. This will transfer the token to the buyer and return
 // //a payout object used for the market to distribute funds to the appropriate accounts.
@@ -35,14 +42,14 @@ pub struct Transaction {
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 struct BridgeAssist {
     pub owner: AccountId,
-    pub relayer_role: AccountId,
+    pub relayer_role: PublicKey,
     pub token: AccountId,
     pub fee_wallet: AccountId,
     pub limit_per_send: Balance,
     pub nonce: U128,
-    pub fee: Balance,
+    pub fee_numerator: u16,
     pub transactions: LookupMap<String, Vector<Transaction>>,
-    pub fulfilled: LookupMap<String, bool>, // REMOVE MAPPING AND DO SET
+    pub fulfilled: LookupSet<String>,
 }
 
 /// Helper structure for keys of the persistent collections
@@ -129,40 +136,50 @@ impl BridgeAssist {
     #[init]
     pub fn init(
         owner: AccountId,
-        relayer_role: AccountId,
+        relayer_role: String,
         token: AccountId,
         fee_wallet: AccountId,
         limit_per_send: Balance,
-        fee: Balance,
+        fee_numerator: u16,
     ) -> Self {
+        assert!(fee_numerator < FEE_DENOMINATOR, "Fee is to high");
         Self {
             owner,
-            relayer_role,
+            relayer_role: relayer_role.parse().unwrap(),
             token,
             fee_wallet,
             limit_per_send,
             nonce: U128::from(0),
-            fee,
+            fee_numerator,
             transactions: LookupMap::new(StorageKey::Transactions),
-            fulfilled: LookupMap::new(StorageKey::Fulfilled),
+            fulfilled: LookupSet::new(StorageKey::Fulfilled),
         }
     }
 
-    pub fn fulfill(&mut self, transaction: Transaction, signature: String) -> Promise {
+    // Fulfills transaction from another chain
+    pub fn fulfill(&mut self, transaction: Transaction, signature: String) {
         assert_one_yocto();
         let to_user = AccountId::try_from(transaction.to.clone()).unwrap();
 
         // Tx reply check
-        let tx_hash = env::keccak256(&bincode::serialize(&transaction).unwrap());
-        let tx_hash = String::from_utf8(tx_hash).unwrap();
+        let tx_hash_bytes = env::keccak256(&bincode::serialize(&transaction).unwrap());
+        let tx_hash = String::from_utf8(tx_hash_bytes.clone()).unwrap();
         assert!(
-            !self.fulfilled.contains_key(&tx_hash),
+            !self.fulfilled.contains(&tx_hash),
             "Tx has already been fulfilled"
         );
-        self.fulfilled.insert(&tx_hash, &true); // REMOVE MAPPING AND DO SET
 
-        // Signature checks....
+        // Signature checks
+        let sig_recover = env::ecrecover(
+            &tx_hash_bytes,
+            signature.as_bytes(),
+            ECRECOVER_V,
+            ECRECOVER_M,
+        )
+        .unwrap();
+        assert_eq!(sig_recover, self.relayer_role.as_bytes(), "Wrong signature");
 
+        self.fulfilled.insert(&tx_hash);
         let mut tx_vector = self.transactions.get(&transaction.from).unwrap_or_else(|| {
             Vector::new(StorageKey::TransactionsInner {
                 account_id_hash: env::sha256_array(transaction.from.as_bytes()),
@@ -171,19 +188,59 @@ impl BridgeAssist {
         tx_vector.push(&transaction);
         self.transactions.insert(&transaction.from, &tx_vector);
 
-        // hash of Transaction, signatures check etc...
+        let current_fee = transaction.amount * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
+        let dispense_amount = transaction.amount - current_fee;
 
         let log = format!(
-            "Sent {} tokens from {} to {} in direction evm->near",
-            u128::from(transaction.amount),
-            transaction.from,
-            to_user
+            "Dispense {} tokens from {} to {} in direction evm->near",
+            dispense_amount, transaction.from, to_user
         );
         env::log_str(&log);
 
-        // Transfer FT
+        // Transfer FT to user
         ext_ft_core::ext(self.token.clone())
             .with_attached_deposit(1)
-            .ft_transfer(to_user, U128::from(transaction.amount), None) // set true before and add callback (if transfer fails return false)
+            .ft_transfer(
+                to_user,
+                U128::from(dispense_amount),
+                Some("Dispensing from bridge".to_string()),
+            )
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_RESOLVE_FULFILLED_SIG)
+                    .resolve_fulfill(U128::from(dispense_amount), &tx_hash),
+            );
+
+        // If tx hash in set, dispense to user was successful, then transfer FT to fee_wallet
+        if current_fee != 0 as u128 && self.fulfilled.contains(&tx_hash) {
+            ext_ft_core::ext(self.token.clone())
+            .with_attached_deposit(1)
+            .ft_transfer(
+                self.fee_wallet.clone(),
+                U128::from(current_fee),
+                Some("Transferring fee".to_string()),
+            );
+        }
+    }
+
+    // Callback for fulfill
+    #[private]
+    pub fn resolve_fulfill(&mut self, amount: U128, tx_hash: &String) -> U128 {
+        let amount: Balance = amount.into();
+
+        let revert_amount = match env::promise_result(0) {
+            PromiseResult::NotReady => env::abort(),
+            // If the promise was successful, get the return value and cast it to a U128.
+            PromiseResult::Successful(_) => 0,
+            // If the promise wasn't successful, return the original amount.
+            PromiseResult::Failed => amount,
+        };
+
+        // If promise is failed remove txhash from fulfilled set
+        if revert_amount > 0 {
+            self.fulfilled.remove(tx_hash);
+        }
+
+        U128(revert_amount)
     }
 }

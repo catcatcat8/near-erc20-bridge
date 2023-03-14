@@ -1,6 +1,7 @@
 build:
 	rustup target add wasm32-unknown-unknown
-	cargo build --all --target wasm32-unknown-unknown --release
+	cargo +nightly build --all --target wasm32-unknown-unknown --release
+	cp target/wasm32-unknown-unknown/release/near_bridge_assist.wasm res/
 deploy:
 	rustup target add wasm32-unknown-unknown
 	cargo build --all --target wasm32-unknown-unknown --release
