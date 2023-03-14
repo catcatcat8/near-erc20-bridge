@@ -3,9 +3,8 @@ build:
 	cargo +nightly build --all --target wasm32-unknown-unknown --release
 	cp target/wasm32-unknown-unknown/release/near_bridge_assist.wasm res/
 deploy:
-	rustup target add wasm32-unknown-unknown
-	cargo build --all --target wasm32-unknown-unknown --release
-	near deploy --accountId bridge.gotbit.testnet --wasmFile ./target/wasm32-unknown-unknown/release/near_bridge_assist.wasm --initFunction init --initArgs '{"owner": "gotbit.testnet", "token": "mytoken.gotbit.testnet", "limit_per_send":100}'
+	make build
+	near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/near_bridge_assist.wasm --initFunction init --initArgs '{"owner": "gotbit.testnet", "relayer_role": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp", "token": "mytoken.gotbit.testnet", "fee_wallet": "gotbit.testnet", "limit_per_send":200, "fee_numerator":1000}'
 deploy-ft:
 	near deploy --accountId mytoken.gotbit.testnet --wasmFile ./res/fungible_token.wasm
 	near call mytoken.gotbit.testnet new '{"owner_id": "gotbit.testnet", "total_supply": "1000000000000000000000000", "metadata": { "spec": "ft-1.0.0", "name": "Example Token Name", "symbol": "EXLT", "decimals": 18 }}' --accountId mytoken.gotbit.testnet

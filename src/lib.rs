@@ -6,7 +6,7 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
     assert_one_yocto, env, near_bindgen, AccountId, Balance, BorshStorageKey,
-    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey,
+    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey, serde_json
 };
 
 const ECRECOVER_V: u8 = 0;
@@ -31,25 +31,25 @@ const GAS_FOR_RESOLVE_FULFILLED_SIG: Gas = Gas(30_000_000_000_000);
 #[derive(BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct Transaction {
-    pub from: String,
-    pub to: String,
-    pub amount: Balance,
-    pub timestamp: U64,
-    pub nonce: U128,
+    from: String,
+    to: String,
+    amount: Balance,
+    timestamp: U64,
+    nonce: U128,
 }
 
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 struct BridgeAssist {
-    pub owner: AccountId,
-    pub relayer_role: PublicKey,
-    pub token: AccountId,
-    pub fee_wallet: AccountId,
-    pub limit_per_send: Balance,
-    pub nonce: U128,
-    pub fee_numerator: u16,
-    pub transactions: LookupMap<String, Vector<Transaction>>,
-    pub fulfilled: LookupSet<String>,
+    owner: AccountId,
+    relayer_role: PublicKey,
+    token: AccountId,
+    fee_wallet: AccountId,
+    limit_per_send: Balance,
+    nonce: U128,
+    fee_numerator: u16,
+    transactions: LookupMap<String, Vector<Transaction>>,
+    fulfilled: LookupSet<String>,
 }
 
 /// Helper structure for keys of the persistent collections
@@ -157,6 +157,7 @@ impl BridgeAssist {
     }
 
     // Fulfills transaction from another chain
+    #[payable]
     pub fn fulfill(&mut self, transaction: Transaction, signature: String) {
         assert_one_yocto();
         let to_user = AccountId::try_from(transaction.to.clone()).unwrap();
@@ -242,5 +243,43 @@ impl BridgeAssist {
         }
 
         U128(revert_amount)
+    }
+
+    // View functions
+    pub fn get_owner(&self) -> AccountId {
+        self.owner.clone()
+    }
+
+    pub fn get_relayer_role(&self) -> PublicKey {
+        self.relayer_role.clone()
+    }
+
+    pub fn get_token(&self) -> AccountId {
+        self.token.clone()
+    }
+
+    pub fn get_fee_info(&self) -> (AccountId, u16, u16) {
+        (self.fee_wallet.clone(), self.fee_numerator, FEE_DENOMINATOR)
+    }
+
+    pub fn get_limit_per_send(&self) -> Balance {
+        self.limit_per_send
+    }
+
+    pub fn get_nonce(&self) -> U128 {
+        self.nonce
+    }
+
+    pub fn get_transactions_by_user(&self, user: String) -> String {
+        let txs = self.transactions.get(&user).unwrap_or_else(|| {
+            Vector::new(StorageKey::TransactionsInner {
+                account_id_hash: env::sha256_array(user.as_bytes()),
+            })
+        });
+        let mut result = vec![];
+        for i in 0..txs.len() {
+            result.push(txs.get(i).unwrap());
+        }
+        serde_json::to_string(&result).unwrap()
     }
 }
