@@ -6,7 +6,8 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
     assert_one_yocto, env, near_bindgen, serde_json, AccountId, Balance, BorshStorageKey,
-    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey, StorageUsage, Promise,
+    CryptoHash, Gas, PanicOnDefault, Promise, PromiseOrValue, PromiseResult, PublicKey,
+    StorageUsage,
 };
 
 const MAX_ACCOUNT_ID_LENGTH: u8 = 64;
@@ -385,7 +386,8 @@ impl BridgeAssist {
             env::panic_str("Amount is more than your storage paid");
         } else {
             Promise::new(user.clone()).transfer(amount);
-            self.storage_paid.insert(&user, &(user_storage_paid - amount));
+            self.storage_paid
+                .insert(&user, &(user_storage_paid - amount));
         }
     }
 
@@ -509,5 +511,16 @@ impl BridgeAssist {
 
     pub fn is_tx_fulfilled(&self, tx_hash: String) -> bool {
         self.fulfilled.contains(&tx_hash)
+    }
+
+    pub fn get_storage_paid_info(&self, user: AccountId) -> (bool, Balance, U128, U128, U128) {
+        let storage_cost = env::STORAGE_PRICE_PER_BYTE;
+        (
+            self.storage_paid.contains_key(&user),
+            self.storage_paid.get(&user).unwrap_or(0 as u128),
+            U128::from(self.bytes_for_register as u128 * storage_cost),
+            U128::from(self.bytes_for_ft_on_transfer as u128 * storage_cost),
+            U128::from(self.bytes_for_fulfill as u128 * storage_cost),
+        )
     }
 }
