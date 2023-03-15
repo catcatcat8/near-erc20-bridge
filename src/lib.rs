@@ -184,13 +184,6 @@ impl BridgeAssist {
         }
 
         self.fulfilled.insert(&tx_hash);
-        let mut tx_vector = self.transactions.get(&transaction.from).unwrap_or_else(|| {
-            Vector::new(StorageKey::TransactionsInner {
-                account_id_hash: env::sha256_array(transaction.from.as_bytes()),
-            })
-        });
-        tx_vector.push(&transaction);
-        self.transactions.insert(&transaction.from, &tx_vector);
 
         let current_fee = transaction.amount * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
         let dispense_amount = transaction.amount - current_fee;
@@ -212,7 +205,7 @@ impl BridgeAssist {
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_RESOLVE_FULFILLED_SIG)
-                    .resolve_fulfill(U128::from(dispense_amount), &tx_hash),
+                    .resolve_fulfill(U128::from(dispense_amount), &tx_hash, &transaction),
             );
 
         // If tx hash in set, dispense to user was successful, then transfer FT to fee_wallet
@@ -229,7 +222,7 @@ impl BridgeAssist {
 
     // Callback for fulfill
     #[private]
-    pub fn resolve_fulfill(&mut self, amount: U128, tx_hash: &String) -> U128 {
+    pub fn resolve_fulfill(&mut self, amount: U128, tx_hash: &String, tx: &Transaction) -> U128 {
         let amount: Balance = amount.into();
 
         let revert_amount = match env::promise_result(0) {
@@ -243,6 +236,14 @@ impl BridgeAssist {
         // If promise is failed remove txhash from fulfilled set
         if revert_amount > 0 {
             self.fulfilled.remove(tx_hash);
+        } else {
+            let mut tx_vector = self.transactions.get(&tx.from).unwrap_or_else(|| {
+                Vector::new(StorageKey::TransactionsInner {
+                    account_id_hash: env::sha256_array(tx.from.as_bytes()),
+                })
+            });
+            tx_vector.push(&tx);
+            self.transactions.insert(&tx.from, &tx_vector);
         }
 
         U128(revert_amount)
