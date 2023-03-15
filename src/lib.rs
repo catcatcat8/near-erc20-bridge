@@ -369,7 +369,8 @@ impl BridgeAssist {
             if attached_near < self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE {
                 env::panic_str("Not enough NEAR attached");
             }
-            self.storage_paid.insert(&user, &(0 as u128));
+            let excess = self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE - attached_near;
+            self.storage_paid.insert(&user, &excess);
         } else {
             let new_storage_balance = self.storage_paid.get(&user).unwrap() + attached_near;
             self.storage_paid.insert(&user, &new_storage_balance);
