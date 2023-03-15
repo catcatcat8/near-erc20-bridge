@@ -5,8 +5,8 @@ use near_sdk::collections::{LookupMap, LookupSet, Vector};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, near_bindgen, AccountId, Balance, BorshStorageKey,
-    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey, serde_json
+    assert_one_yocto, env, near_bindgen, serde_json, AccountId, Balance, BorshStorageKey,
+    CryptoHash, Gas, PanicOnDefault, PromiseOrValue, PromiseResult, PublicKey,
 };
 
 const ECRECOVER_V: u8 = 0;
@@ -76,23 +76,19 @@ impl FungibleTokenReceiver for BridgeAssist {
     ) -> PromiseOrValue<U128> {
         // Require only specified FT can be used
         let ft_contract_id = env::predecessor_account_id();
-        assert_eq!(
-            env::predecessor_account_id(),
-            self.token,
-            "Only supports fungible token contract: {}",
-            self.token
-        );
+        if ft_contract_id != self.token {
+            env::panic_str("Not supported fungible token");
+        }
 
         // Require the signer isn't the predecessor. This is so that we're sure
         // this was called via a cross-contract call from FT
         let signer_id = env::signer_account_id();
-        assert_ne!(
-            ft_contract_id, signer_id,
-            "Should only be called via cross-contract call"
-        );
-
-        // Require the owner ID is the signer
-        assert_eq!(sender_id, signer_id, "owner_id should be signer_id");
+        if ft_contract_id == signer_id {
+            env::panic_str("Should only be called via cross-contract call");
+        }
+        if sender_id != signer_id {
+            env::panic_str("Sender_id is not the signer of tx");
+        }
 
         // Limits check
         let mut amount = Balance::from(amount);
@@ -104,11 +100,11 @@ impl FungibleTokenReceiver for BridgeAssist {
 
         // @TODO: CHECK POSSIBILITY NOT TO USE CLONE
         let tx_data = Transaction {
-            from: sender_id.clone().to_string(),
+            from: sender_id.to_string(),
             to: msg.clone(),
-            amount: amount.clone(),
+            amount,
             timestamp: U64::from(env::block_timestamp()),
-            nonce: self.nonce.clone(),
+            nonce: self.nonce,
         };
 
         let mut tx_vector = self.transactions.get(&tx_data.from).unwrap_or_else(|| {
@@ -118,13 +114,11 @@ impl FungibleTokenReceiver for BridgeAssist {
         });
         tx_vector.push(&tx_data);
         self.transactions.insert(&tx_data.from, &tx_vector);
-        self.nonce = U128::from(u128::from(self.nonce) + 1); // TODO: WHY U128 u128 wtf
+        self.nonce = U128::from(u128::from(self.nonce) + 1 as u128);
 
         let log = format!(
             "Sent {} tokens from {} to {} in direction near->evm",
-            amount,
-            sender_id,
-            msg.clone()
+            amount, sender_id, msg
         );
         env::log_str(&log);
         PromiseOrValue::Value(U128::from(amount_to_return))
@@ -142,7 +136,9 @@ impl BridgeAssist {
         limit_per_send: Balance,
         fee_numerator: u16,
     ) -> Self {
-        assert!(fee_numerator < FEE_DENOMINATOR, "Fee is to high");
+        if fee_numerator >= FEE_DENOMINATOR {
+            env::panic_str("Fee is to high");
+        }
         Self {
             owner,
             relayer_role: relayer_role.parse().unwrap(),
@@ -160,15 +156,20 @@ impl BridgeAssist {
     #[payable]
     pub fn fulfill(&mut self, transaction: Transaction, signature: String) {
         assert_one_yocto();
-        let to_user = AccountId::try_from(transaction.to.clone()).unwrap();
+        let to_user = AccountId::try_from(transaction.to.clone()).unwrap_or_else(|_| {
+            env::panic_str("Not convertible transaction.to field to AccountId type")
+        });
 
         // Tx reply check
-        let tx_hash_bytes = env::keccak256(&bincode::serialize(&transaction).unwrap());
-        let tx_hash = String::from_utf8(tx_hash_bytes.clone()).unwrap();
-        assert!(
-            !self.fulfilled.contains(&tx_hash),
-            "Tx has already been fulfilled"
+        let tx_hash_bytes = env::keccak256(
+            &bincode::serialize(&transaction)
+                .unwrap_or_else(|_| env::panic_str("Serializing transaction field is failed")),
         );
+        let tx_hash = String::from_utf8(tx_hash_bytes.clone())
+            .unwrap_or_else(|_| env::panic_str("Not UTF-8 tx hash"));
+        if self.fulfilled.contains(&tx_hash) {
+            env::panic_str("Tx has already been fulfilled");
+        }
 
         // Signature checks
         let sig_recover = env::ecrecover(
@@ -177,8 +178,10 @@ impl BridgeAssist {
             ECRECOVER_V,
             ECRECOVER_M,
         )
-        .unwrap();
-        assert_eq!(sig_recover, self.relayer_role.as_bytes(), "Wrong signature");
+        .unwrap_or_else(|| env::panic_str("Signature recover failed"));
+        if sig_recover != self.relayer_role.as_bytes() {
+            env::panic_str("Wrong (not relayer role) signature");
+        }
 
         self.fulfilled.insert(&tx_hash);
         let mut tx_vector = self.transactions.get(&transaction.from).unwrap_or_else(|| {
@@ -215,12 +218,12 @@ impl BridgeAssist {
         // If tx hash in set, dispense to user was successful, then transfer FT to fee_wallet
         if current_fee != 0 as u128 && self.fulfilled.contains(&tx_hash) {
             ext_ft_core::ext(self.token.clone())
-            .with_attached_deposit(1)
-            .ft_transfer(
-                self.fee_wallet.clone(),
-                U128::from(current_fee),
-                Some("Transferring fee".to_string()),
-            );
+                .with_attached_deposit(1)
+                .ft_transfer(
+                    self.fee_wallet.clone(),
+                    U128::from(current_fee),
+                    Some("Transferring fee".to_string()),
+                );
         }
     }
 
@@ -281,5 +284,9 @@ impl BridgeAssist {
             result.push(txs.get(i).unwrap());
         }
         serde_json::to_string(&result).unwrap()
+    }
+
+    pub fn is_tx_fulfilled(&self, tx_hash: String) -> bool {
+        self.fulfilled.contains(&tx_hash)
     }
 }

@@ -32,5 +32,4 @@ yarn-debug.log*
 yarn-error.log*
 
 .github
-.cargo
 target
