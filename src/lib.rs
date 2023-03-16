@@ -214,8 +214,7 @@ impl BridgeAssist {
             &bincode::serialize(&transaction)
                 .unwrap_or_else(|_| env::panic_str("Serializing transaction field is failed")),
         );
-        let tx_hash = String::from_utf8(tx_hash_bytes.clone())
-            .unwrap_or_else(|_| env::panic_str("Not UTF-8 tx hash"));
+        let tx_hash = hex::encode(tx_hash_bytes.clone());
         if self.fulfilled.contains(&tx_hash) {
             env::panic_str("Tx has already been fulfilled");
         }
@@ -353,8 +352,7 @@ impl BridgeAssist {
             &bincode::serialize(&tx_data)
                 .unwrap_or_else(|_| env::panic_str("Serializing transaction field is failed")),
         );
-        let tx_hash = String::from_utf8(tx_hash_bytes.clone())
-            .unwrap_or_else(|_| env::panic_str("Not UTF-8 tx hash"));
+        let tx_hash = hex::encode(tx_hash_bytes);
         self.fulfilled.insert(&tx_hash);
         self.bytes_for_fulfill =
             env::storage_usage() - initial_storage_usage + self.bytes_for_ft_on_transfer;
