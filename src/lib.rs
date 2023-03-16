@@ -163,7 +163,7 @@ impl BridgeAssist {
         relayer_role: String,
         token: AccountId,
         fee_wallet: AccountId,
-        limit_per_send: Balance,
+        limit_per_send: U128,
         fee_numerator: u16,
     ) -> Self {
         if fee_numerator >= FEE_DENOMINATOR {
@@ -177,7 +177,7 @@ impl BridgeAssist {
             relayer_role: relayer_role.parse().unwrap(),
             token,
             fee_wallet,
-            limit_per_send,
+            limit_per_send: Balance::from(limit_per_send),
             nonce: U128::from(0),
             fee_numerator,
             transactions: LookupMap::new(StorageKey::Transactions),
@@ -367,7 +367,7 @@ impl BridgeAssist {
             if attached_near < self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE {
                 env::panic_str("Not enough NEAR attached");
             }
-            let excess = self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE - attached_near;
+            let excess = attached_near - self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE;
             self.storage_paid.insert(&user, &excess);
         } else {
             let new_storage_balance = self.storage_paid.get(&user).unwrap() + attached_near;
@@ -375,7 +375,8 @@ impl BridgeAssist {
         }
     }
 
-    pub fn storage_withdraw(&mut self, amount: Balance) {
+    pub fn storage_withdraw(&mut self, amount: U128) {
+        let amount = u128::from(amount);
         let user = env::predecessor_account_id();
         let user_storage_paid = self
             .storage_paid
@@ -400,6 +401,14 @@ impl BridgeAssist {
         if caller != self.owner {
             env::panic_str("Only owner function");
         }
+    }
+
+    pub fn transfer_ownership(&mut self, owner: AccountId) {
+        self.only_owner(env::predecessor_account_id());
+        if owner == self.owner {
+            env::panic_str("Current owner is equal to new owner");
+        }
+        self.owner = owner;
     }
 
     pub fn set_fee_numerator(&mut self, fee_numerator: u16) {
@@ -487,8 +496,8 @@ impl BridgeAssist {
         (self.fee_wallet.clone(), self.fee_numerator, FEE_DENOMINATOR)
     }
 
-    pub fn get_limit_per_send(&self) -> Balance {
-        self.limit_per_send
+    pub fn get_limit_per_send(&self) -> U128 {
+        U128::from(self.limit_per_send)
     }
 
     pub fn get_nonce(&self) -> U128 {
@@ -512,11 +521,11 @@ impl BridgeAssist {
         self.fulfilled.contains(&tx_hash)
     }
 
-    pub fn get_storage_paid_info(&self, user: AccountId) -> (bool, Balance, U128, U128, U128) {
+    pub fn get_storage_paid_info(&self, user: AccountId) -> (bool, U128, U128, U128, U128) {
         let storage_cost = env::STORAGE_PRICE_PER_BYTE;
         (
             self.storage_paid.contains_key(&user),
-            self.storage_paid.get(&user).unwrap_or(0 as u128),
+            U128::from(self.storage_paid.get(&user).unwrap_or(0 as u128)),
             U128::from(self.bytes_for_register as u128 * storage_cost),
             U128::from(self.bytes_for_ft_on_transfer as u128 * storage_cost),
             U128::from(self.bytes_for_fulfill as u128 * storage_cost),
