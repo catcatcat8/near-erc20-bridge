@@ -37,7 +37,7 @@ const GAS_FOR_RESOLVE_FULFILLED_SIG: Gas = Gas(30_000_000_000_000);
 pub struct Transaction {
     from: String,
     to: String,
-    amount: Balance,
+    amount: U128,
     timestamp: U64,
     nonce: U128,
 }
@@ -86,6 +86,7 @@ impl FungibleTokenReceiver for BridgeAssist {
         // Require only specified FT can be used
         let ft_contract_id = env::predecessor_account_id();
         if ft_contract_id != self.token {
+            env::log_str("PANIC: Not supported fungible token");
             env::panic_str("Not supported fungible token");
         }
 
@@ -93,29 +94,35 @@ impl FungibleTokenReceiver for BridgeAssist {
         // this was called via a cross-contract call from FT
         let signer_id = env::signer_account_id();
         if ft_contract_id == signer_id {
+            env::log_str("PANIC: Should only be called via cross-contract call");
             env::panic_str("Should only be called via cross-contract call");
         }
         if sender_id != signer_id {
+            env::log_str("PANIC: Sender_id is not the signer of tx");
             env::panic_str("Sender_id is not the signer of tx");
         }
 
         if msg.len() as u8 != ETH_ADDRESS_LENGTH {
+            env::log_str(
+                "PANIC: 42 hexadecimal characters as ETH address should be specified in msg field",
+            );
             env::panic_str(
                 "42 hexadecimal characters as ETH address should be specified in msg field",
             );
         }
 
-        let user_storage_paid = self
-            .storage_paid
-            .get(&sender_id)
-            .unwrap_or_else(|| env::panic_str("Not enough storage paid"));
+        let user_storage_paid = self.storage_paid.get(&sender_id).unwrap_or_else(|| {
+            env::log_str("PANIC: Not storage paid");
+            env::panic_str("Not storage paid")
+        });
         if user_storage_paid < self.bytes_for_ft_on_transfer as u128 * env::STORAGE_PRICE_PER_BYTE {
+            env::log_str("PANIC: Not enough storage paid");
             env::panic_str("Not enough storage paid");
         }
 
         // Limits check
         let mut amount = Balance::from(amount);
-        let mut amount_to_return = Balance::from('0');
+        let mut amount_to_return = 0;
         if amount > self.limit_per_send {
             amount_to_return = amount - self.limit_per_send;
             amount = self.limit_per_send;
@@ -124,8 +131,8 @@ impl FungibleTokenReceiver for BridgeAssist {
         let tx_data = Transaction {
             from: sender_id.to_string(),
             to: msg.clone(),
-            amount,
-            timestamp: U64::from(env::block_timestamp()),
+            amount: U128::from(amount),
+            timestamp: U64::from(env::block_timestamp() / 1_000_000_000),
             nonce: self.nonce,
         };
 
@@ -233,8 +240,8 @@ impl BridgeAssist {
 
         self.fulfilled.insert(&tx_hash);
 
-        let current_fee = transaction.amount * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
-        let dispense_amount = transaction.amount - current_fee;
+        let current_fee = u128::from(transaction.amount) * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
+        let dispense_amount = u128::from(transaction.amount) - current_fee;
 
         let log = format!(
             "Dispense {} tokens from {} to {} in direction evm->near",
@@ -332,7 +339,7 @@ impl BridgeAssist {
         let tx_data = Transaction {
             from: tmp_account_id.to_string(),
             to: to_addr.clone(),
-            amount: 0u128,
+            amount: U128::from(0u128),
             timestamp: U64::from(0),
             nonce: U128::from(0),
         };
@@ -367,7 +374,8 @@ impl BridgeAssist {
             if attached_near < self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE {
                 env::panic_str("Not enough NEAR attached");
             }
-            let excess = attached_near - self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE;
+            let excess =
+                attached_near - self.bytes_for_register as u128 * env::STORAGE_PRICE_PER_BYTE;
             self.storage_paid.insert(&user, &excess);
         } else {
             let new_storage_balance = self.storage_paid.get(&user).unwrap() + attached_near;

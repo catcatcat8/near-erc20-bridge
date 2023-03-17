@@ -5,10 +5,10 @@ const ONE_NEAR = new BN(new BN("10").pow(new BN("24")));
 const DELTA = new BN(new BN("10").pow(new BN("22")));
 const STORAGE_BYTE_COST = "1.5 mN";
 
-const LIMIT_PER_SEND = new BN(2000);
 const FEE_NUMERATOR = 8000;
 const TOTAL_SUPPLY = "1000000000000000000000000";
 const DECIMALS = 18;
+const LIMIT_PER_SEND = new BN(50).mul(new BN(10).pow(new BN(DECIMALS)));
 const USER_INITIAL_FT_BALANCE = new BN(66).mul(
   new BN(10).pow(new BN(DECIMALS))
 );
@@ -75,7 +75,7 @@ test.beforeEach(async (t) => {
       relayer_role: RELAYER_ROLE,
       token: token.accountId,
       fee_wallet: owner.accountId,
-      limit_per_send: LIMIT_PER_SEND,
+      limit_per_send: LIMIT_PER_SEND.toString(),
       fee_numerator: FEE_NUMERATOR,
     },
   });
@@ -193,7 +193,7 @@ test("Successful first and second storage deposit", async (t) => {
   t.deepEqual(actualUserPaid[1], expectedStoragePaid.add(ONE_NEAR).toString());
 });
 
-test("First storage deposit fails if NEAR not enough", async (t) => {
+test("First storage deposit panics if NEAR not enough", async (t) => {
   const { bridge, user } = t.context.accounts;
 
   const error = await t.throwsAsync(
@@ -312,25 +312,107 @@ test("Correct storage withdraw", async (t) => {
 
 const TRANSFER_AMOUNT = new BN(10).mul(new BN(10).pow(new BN(18)));
 const ETH_ADDR = "0x3Ba6810768c2F4FD3Be2c5508E214E68B514B35f";
-const GAS_REQUIRED = new BN(30).mul(new BN(10).pow(new BN(13)))
+const GAS_REQUIRED = new BN(30).mul(new BN(10).pow(new BN(13)));
 
-test("Ft_on_transfer panic tests", async (t) => {
+test("Ft_on_transfer panic", async (t) => {
   const { bridge, user, token, wrongToken } = t.context.accounts;
 
-  await
-    user.call(
-      wrongToken,
-      "ft_transfer_call",
-      {
-        receiver_id: bridge.accountId,
-        amount: TRANSFER_AMOUNT.toString(),
-        msg: ETH_ADDR,
-      },
-      { attachedDeposit: "1", gas: GAS_REQUIRED },
-    )
-  ;
-  // t.is(
-  //   panicMessageFromThrowsAsync(error),
-  //   "Smart contract panicked: Not supported fungible token"
-  // );
+  let tx = await user.callRaw(
+    wrongToken,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(tx.logs[1], "PANIC: Not supported fungible token");
+
+  tx = await token.callRaw(
+    bridge,
+    "ft_on_transfer",
+    {
+      sender_id: token.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { gas: GAS_REQUIRED }
+  );
+  t.is(tx.logs[0], "PANIC: Should only be called via cross-contract call");
+
+  tx = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR + "x",
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(
+    tx.logs[1],
+    "PANIC: 42 hexadecimal characters as ETH address should be specified in msg field"
+  );
+
+  tx = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(tx.logs[1], "PANIC: Not storage paid");
+
+  await storageDeposit(user, bridge, payForRegister);
+  tx = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(tx.logs[1], "PANIC: Not enough storage paid");
+});
+
+test("Successful ft_on_transfer", async (t) => {
+  const { bridge, user, token, wrongToken } = t.context.accounts;
+
+  await storageDeposit(user, bridge, payForRegister.add(payForFtOnTransfer));
+  const bbUser = await token.view("ft_balance_of", { account_id: user.accountId }) as string;
+  const bbBridge = await token.view("ft_balance_of", { account_id: bridge.accountId }) as string;
+  const tx = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+
+  t.is(
+    tx.logs[1],
+    `Sent ${TRANSFER_AMOUNT.toString()} tokens from ${
+      user.accountId
+    } to ${ETH_ADDR} in direction near->evm`
+  );
+  
+  t.is(await token.view("ft_balance_of", { account_id: user.accountId }), new BN(bbUser).sub(TRANSFER_AMOUNT).toString())
+  t.is(await token.view("ft_balance_of", { account_id: bridge.accountId }), new BN(bbBridge).add(TRANSFER_AMOUNT).toString())
+
+  const txData = JSON.parse(await bridge.view("get_transactions_by_user", {user: user.accountId}) as any)[0]
+  
+  t.is(txData.from, user.accountId)
+  t.is(txData.to, ETH_ADDR)
+  t.is(txData.amount, TRANSFER_AMOUNT.toString())
+  t.is(txData.nonce, '0')
 });
