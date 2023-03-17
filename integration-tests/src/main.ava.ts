@@ -386,8 +386,12 @@ test("Successful ft_on_transfer", async (t) => {
   const { bridge, user, token, wrongToken } = t.context.accounts;
 
   await storageDeposit(user, bridge, payForRegister.add(payForFtOnTransfer));
-  const bbUser = await token.view("ft_balance_of", { account_id: user.accountId }) as string;
-  const bbBridge = await token.view("ft_balance_of", { account_id: bridge.accountId }) as string;
+  const bbUser = (await token.view("ft_balance_of", {
+    account_id: user.accountId,
+  })) as string;
+  const bbBridge = (await token.view("ft_balance_of", {
+    account_id: bridge.accountId,
+  })) as string;
   const tx = await user.callRaw(
     token,
     "ft_transfer_call",
@@ -405,14 +409,82 @@ test("Successful ft_on_transfer", async (t) => {
       user.accountId
     } to ${ETH_ADDR} in direction near->evm`
   );
-  
-  t.is(await token.view("ft_balance_of", { account_id: user.accountId }), new BN(bbUser).sub(TRANSFER_AMOUNT).toString())
-  t.is(await token.view("ft_balance_of", { account_id: bridge.accountId }), new BN(bbBridge).add(TRANSFER_AMOUNT).toString())
 
-  const txData = JSON.parse(await bridge.view("get_transactions_by_user", {user: user.accountId}) as any)[0]
-  
-  t.is(txData.from, user.accountId)
-  t.is(txData.to, ETH_ADDR)
-  t.is(txData.amount, TRANSFER_AMOUNT.toString())
-  t.is(txData.nonce, '0')
+  t.is(
+    await token.view("ft_balance_of", { account_id: user.accountId }),
+    new BN(bbUser).sub(TRANSFER_AMOUNT).toString()
+  );
+  t.is(
+    await token.view("ft_balance_of", { account_id: bridge.accountId }),
+    new BN(bbBridge).add(TRANSFER_AMOUNT).toString()
+  );
+
+  const txData = JSON.parse(
+    (await bridge.view("get_transactions_by_user", {
+      user: user.accountId,
+    })) as any
+  )[0];
+
+  t.is(txData.from, user.accountId);
+  t.is(txData.to, ETH_ADDR);
+  t.is(txData.amount, TRANSFER_AMOUNT.toString());
+  t.is(txData.nonce, "0");
+
+  t.is(
+    (
+      (await bridge.view("get_storage_paid_info", {
+        user: user.accountId,
+      })) as any
+    )[1],
+    "0"
+  );
+  t.is(await bridge.view("get_nonce"), "1");
+
+  const tx2 = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(tx2.logs[1], "PANIC: Not enough storage paid");
+
+  await storageDeposit(user, bridge, payForFtOnTransfer);
+  const tx3 = await user.callRaw(
+    token,
+    "ft_transfer_call",
+    {
+      receiver_id: bridge.accountId,
+      amount: TRANSFER_AMOUNT.toString(),
+      msg: ETH_ADDR,
+    },
+    { attachedDeposit: "1", gas: GAS_REQUIRED }
+  );
+  t.is(
+    tx3.logs[1],
+    `Sent ${TRANSFER_AMOUNT.toString()} tokens from ${
+      user.accountId
+    } to ${ETH_ADDR} in direction near->evm`
+  );
+  const txData3 = JSON.parse(
+    (await bridge.view("get_transactions_by_user", {
+      user: user.accountId,
+    })) as any
+  )[1];
+  t.is(txData3.from, user.accountId);
+  t.is(txData3.to, ETH_ADDR);
+  t.is(txData3.amount, TRANSFER_AMOUNT.toString());
+  t.is(txData3.nonce, "1");
+  t.is(
+    (
+      (await bridge.view("get_storage_paid_info", {
+        user: user.accountId,
+      })) as any
+    )[1],
+    "0"
+  );
+  t.is(await bridge.view("get_nonce"), "2");
 });
