@@ -240,7 +240,8 @@ impl BridgeAssist {
 
         self.fulfilled.insert(&tx_hash);
 
-        let current_fee = u128::from(transaction.amount) * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
+        let current_fee =
+            u128::from(transaction.amount) * self.fee_numerator as u128 / FEE_DENOMINATOR as u128;
         let dispense_amount = u128::from(transaction.amount) - current_fee;
 
         let log = format!(
@@ -438,12 +439,12 @@ impl BridgeAssist {
         self.fee_wallet = fee_wallet;
     }
 
-    pub fn set_limit_per_send(&mut self, limit_per_send: Balance) {
+    pub fn set_limit_per_send(&mut self, limit_per_send: U128) {
         self.only_owner(env::predecessor_account_id());
-        if limit_per_send == self.limit_per_send {
+        if Balance::from(limit_per_send) == self.limit_per_send {
             env::panic_str("Current limit is equal to new limit");
         }
-        self.limit_per_send = limit_per_send;
+        self.limit_per_send = Balance::from(limit_per_send);
     }
 
     #[payable]
