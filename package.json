@@ -4,5 +4,8 @@
   "devDependencies": {
     "near-cli": "^3.3.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "scripts": {
+    "test": "make build && cd integration-tests && yarn test"
+  }
 }

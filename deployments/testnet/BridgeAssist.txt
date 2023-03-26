@@ -1,0 +1,5 @@
+Starting deployment. Account id: nearbridgev4.gotbit.testnet, node: https://rpc.testnet.near.org, helper: https://helper.testnet.near.org, file: ./target/wasm32-unknown-unknown/release/near_bridge_assist.wasm
+Transaction Id CZyKmFWKS78AD7DN9VVwV6kDDLLk6arHpB7haNfRefqM
+To see the transaction in the transaction explorer, please open this url in your browser
+https://explorer.testnet.near.org/transactions/CZyKmFWKS78AD7DN9VVwV6kDDLLk6arHpB7haNfRefqM
+Done deploying and initializing nearbridgev4.gotbit.testnet

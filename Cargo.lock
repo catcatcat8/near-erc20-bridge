@@ -650,6 +650,7 @@ name = "near-bridge-assist"
 version = "1.0.0"
 dependencies = [
  "bincode",
+ "ed25519-dalek",
  "hex",
  "near-contract-standards",
  "near-sdk",

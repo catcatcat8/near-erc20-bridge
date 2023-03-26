@@ -1,0 +1,8 @@
+Scheduling a call: parastoken.gotbit.testnet.new({"owner_id": "gotbit.testnet", "total_supply": "1000000000000000000000000", "metadata": { "spec": "ft-1.0.0", "name": "Paras Token", "symbol": "PARAS", "decimals": 18 }})
+Doing account.functionCall()
+Receipt: w2EE1K9ihtGoFrb1j1LdrmtEemTJYhf2HSEqHtnYjBB
+	Log [parastoken.gotbit.testnet]: EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_mint","data":[{"owner_id":"gotbit.testnet","amount":"1000000000000000000000000","memo":"Initial tokens supply is minted"}]}
+Transaction Id 3rJBejfU2JoV1fADYfYmzJhgQbhXfDxs9EE5oyEHhSsK
+To see the transaction in the transaction explorer, please open this url in your browser
+https://explorer.testnet.near.org/transactions/3rJBejfU2JoV1fADYfYmzJhgQbhXfDxs9EE5oyEHhSsK
+''
